@@ -1,0 +1,17 @@
+[package]
+name = "converter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+regex = "1.12"
+heck = "0.5"
+unscanny = "0.1"
+walkdir = "2.5"
+unicode-segmentation = "1.12"
+syn = { version = "2", features = ["full", "extra-traits", "visit"] }
+proc-macro2 = { version = "1.0.104", features = ["span-locations"] }
+markdown = { git = "https://github.com/typst/markdown-rs", branch = "typst-docs-converter" }
+typstyle-core = { git = "https://github.com/typst/typstyle", branch = "typst-docs-converter" }
+serde_yaml = "0.9.34"
+serde = "1.0.228"
