@@ -217,6 +217,9 @@ fn convert_flow_jsx(node: &mdast::MdxJsxFlowElement, ctx: &mut Context) -> Strin
             call_blocky("details", &body)
         }
         Some("summary") => call_blocky("summary", &body),
+        Some("img") => String::new(),
+        Some("video") => String::new(),
+        Some("source") => String::new(),
         node => unimplemented!("flow jsx: {node:?}"),
     }
 }
@@ -420,6 +423,19 @@ fn convert_inline_jsx(node: &mdast::MdxJsxTextElement, ctx: &mut Context) -> Str
             ctx.imports.insert("kbd");
             format!("#kbd[{body}]")
         }
+        Some("span") => {
+            if let [mdast::AttributeContent::Property(property)] =
+                node.attributes.as_slice()
+                && property.name == "class"
+                && let Some(mdast::AttributeValue::Literal(lit)) = &property.value
+                && lit == "with-icon"
+            {
+                // ctx.imports.insert("icon");
+                String::new()
+            } else {
+                unimplemented!("div: {node:?}")
+            }
+        }
         node => unimplemented!("inline jsx: {node:?}"),
     }
 }
@@ -464,11 +480,11 @@ fn convert_link(node: &mdast::Link, ctx: &mut Context) -> String {
     assert_eq!(node.title, None);
     let body = convert_inlines(&node.children, ctx);
 
-    if let Some(caps1) = re!("^https://github.com/([\\w0-9\\-]+)$").captures(&node.url) {
-        let caps2 = re!("^\\\\@([\\w0-9\\-]+)$").captures(&body).unwrap();
-        assert_eq!(&caps1[1], &caps2[1]);
-        return format!("#gh({:?})", &caps1[1]);
-    }
+    // if let Some(caps1) = re!("^https://github.com/([\\w0-9\\-]+)$").captures(&node.url) {
+    //     let caps2 = re!("^\\\\@([\\w0-9\\-]+)$").captures(&body).unwrap();
+    //     assert_eq!(&caps1[1], &caps2[1]);
+    //     return format!("#gh({:?})", &caps1[1]);
+    // }
 
     if node.url.starts_with("http") {
         return format!("#link({:?})[{body}]", node.url);

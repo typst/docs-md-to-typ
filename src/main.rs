@@ -31,8 +31,8 @@ static ROOT: LazyLock<String> =
 
 fn main() {
     convert_markdown_files();
-    convert_in_source_comments();
-    convert_groups();
+    // convert_in_source_comments();
+    // convert_groups();
 }
 
 fn convert_groups() {
