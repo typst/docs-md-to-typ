@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use heck::ToKebabCase;
+use markdown::mdast::AttributeValue;
 use markdown::{Constructs, ParseOptions, mdast};
 use regex::{Regex, Replacer};
 use serde::Deserialize;
@@ -41,6 +42,7 @@ pub fn convert_md_to_typ(string: &str, opt: &Options) -> String {
                 html_text: false,
                 mdx_jsx_flow: true,
                 mdx_jsx_text: true,
+                gfm_strikethrough: true,
                 ..Default::default()
             },
             ..Default::default()
@@ -186,6 +188,10 @@ fn convert_flow_node(node: &mdast::Node, ctx: &mut Context) -> String {
         mdast::Node::List(node) => convert_list(node, ctx),
         mdast::Node::Table(node) => convert_table(node, ctx),
         mdast::Node::Paragraph(node) => convert_inlines(&node.children, ctx),
+        mdast::Node::Delete(node) => {
+            ctx.imports.insert("done");
+            format!("#done[{}]", convert_flow(&node.children, ctx))
+        }
         // These are link definitions, not definition lists. They are not needed
         // in the Typst version if the link is already resolved.
         mdast::Node::Definition(_) => String::new(),
@@ -217,7 +223,23 @@ fn convert_flow_jsx(node: &mdast::MdxJsxFlowElement, ctx: &mut Context) -> Strin
             call_blocky("details", &body)
         }
         Some("summary") => call_blocky("summary", &body),
-        Some("img") => String::new(),
+        Some("img") => convert_image(
+            &mdast::Image {
+                alt: node
+                    .attributes
+                    .iter()
+                    .find_map(get_attr("alt"))
+                    .expect("alt attribute"),
+                position: None,
+                title: None,
+                url: node
+                    .attributes
+                    .iter()
+                    .find_map(get_attr("src"))
+                    .expect("src attribute"),
+            },
+            ctx,
+        ),
         Some("video") => String::new(),
         Some("source") => String::new(),
         node => unimplemented!("flow jsx: {node:?}"),
@@ -411,6 +433,10 @@ fn convert_inline_node(node: &mdast::Node, ctx: &mut Context) -> String {
         mdast::Node::FootnoteReference(node) => convert_footnote_ref(node, ctx),
         mdast::Node::Image(node) => convert_image(node, ctx),
         mdast::Node::Break(node) => convert_break(node, ctx),
+        mdast::Node::Delete(node) => {
+            ctx.imports.insert("done");
+            format!("#done[{}]", convert_inlines(&node.children, ctx))
+        }
         node => unimplemented!("inline: {node:?}"),
     }
 }
@@ -430,8 +456,28 @@ fn convert_inline_jsx(node: &mdast::MdxJsxTextElement, ctx: &mut Context) -> Str
                 && let Some(mdast::AttributeValue::Literal(lit)) = &property.value
                 && lit == "with-icon"
             {
-                // ctx.imports.insert("icon");
-                String::new()
+                ctx.imports.insert("icon");
+                let (name, alt) = match node.children.first().unwrap() {
+                    mdast::Node::Image(img) => (
+                        &img.url
+                            .strip_prefix("/assets/icons/16-")
+                            .unwrap()
+                            .strip_suffix(".svg")
+                            .unwrap(),
+                        &img.alt,
+                    ),
+                    _ => panic!("the first child of an icon span should be an image"),
+                };
+
+                match node.children.last() {
+                    Some(mdast::Node::Text(t)) => {
+                        let body = &t.value.trim();
+                        format!("#icon(\"{name}\", alt: \"{alt}\")[{body}]")
+                    }
+                    _ => {
+                        format!("#icon(\"{name}\", alt: \"{alt}\")")
+                    }
+                }
             } else {
                 unimplemented!("div: {node:?}")
             }
@@ -488,6 +534,10 @@ fn convert_link(node: &mdast::Link, ctx: &mut Context) -> String {
 
     if node.url.starts_with("http") {
         return format!("#link({:?})[{body}]", node.url);
+    }
+
+    if let Some(target) = node.url.strip_prefix("#") {
+        return format!("#link(<{target}>)[{body}]");
     }
 
     let Some(target) = node.url.strip_prefix('$') else {
@@ -561,10 +611,13 @@ fn convert_footnote_ref(node: &mdast::FootnoteReference, ctx: &mut Context) -> S
 
 fn convert_image(node: &mdast::Image, ctx: &mut Context) -> String {
     assert!(!node.url.contains('"'));
-    assert!(!node.alt.contains('"'));
     assert!(!node.alt.is_empty());
-    ctx.imports.insert("docs-figure");
-    format!("#docs-figure(\n  \"{}\",\n  alt: \"{}\",\n)", node.url, node.alt)
+    ctx.imports.insert("web-app-figure");
+    format!(
+        "#web-app-figure(\n  \"{}\",\n  alt: \"{}\",\n)",
+        node.url,
+        node.alt.replace('"', "\\\"")
+    )
 }
 
 fn convert_break(_: &mdast::Break, _: &mut Context) -> String {
@@ -599,4 +652,18 @@ fn max_consecutive_backticks(text: &str) -> usize {
 
 fn replace(input: &str, re: &str, rep: impl Replacer) -> String {
     Regex::new(re).unwrap().replace_all(input, rep).into()
+}
+
+fn get_attr(
+    attr: &'static str,
+) -> impl FnMut(&mdast::AttributeContent) -> Option<String> {
+    move |attribute_content| match attribute_content {
+        mdast::AttributeContent::Expression(_) => panic!("expected HTML-like attributes"),
+        mdast::AttributeContent::Property(prop) => (prop.name == attr)
+            .then(|| match prop.value {
+                Some(AttributeValue::Literal(ref l)) => Some(l.clone()),
+                _ => None,
+            })
+            .flatten(),
+    }
 }
